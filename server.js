@@ -71,7 +71,11 @@ app.post("/emit", (req, res) => {
         "new_order",
         "orders_panel_update",
         "booster_request",
-        "notification_update"
+        "notification_update",
+        "chat_update",
+        "order_status_update",
+        "order_account_update",
+        "price_update"
     ]);
 
     if (!allowedEvents.has(event)) {
