@@ -34,19 +34,29 @@ const io = new Server(server, {
     }
 });
 
+const ALLOWED_ROOMS = new Set(["boosters", "admins", "clients", "sellers"]);
+
+function safeJoin(socket, room) {
+    if (typeof room !== "string") return;
+    const clean = room.trim();
+    if (!clean || !ALLOWED_ROOMS.has(clean)) return;
+    socket.join(clean);
+}
+
 io.on("connection", (socket) => {
     console.log("Connected:", socket.id);
-
-    socket.join("boosters");
 
     socket.emit("connected", {
         message: "lolboost websocket online",
         socketId: socket.id
     });
 
-    socket.on("booster:join", () => {
-        socket.join("boosters");
-    });
+    // Generic room join used by every role (booster/admin/client/seller).
+    // The frontend calls socket.emit('join', 'admins') etc. right after connecting.
+    socket.on("join", (room) => safeJoin(socket, room));
+
+    // Kept for backwards compatibility with already-deployed booster frontends.
+    socket.on("booster:join", () => safeJoin(socket, "boosters"));
 
     socket.on("disconnect", () => {
         console.log("Disconnected:", socket.id);
@@ -64,7 +74,10 @@ app.post("/emit", (req, res) => {
     }
 
     const event = String(req.body.event || "").trim();
-    const room = String(req.body.room || "boosters").trim();
+    const roomInput = req.body.room || "boosters";
+    const rooms = (Array.isArray(roomInput) ? roomInput : [roomInput])
+        .map(r => String(r || "").trim())
+        .filter(r => ALLOWED_ROOMS.has(r));
     const payload = req.body.data || {};
 
     const allowedEvents = new Set([
@@ -82,8 +95,12 @@ app.post("/emit", (req, res) => {
         return res.status(400).json({ ok: false, reason: "invalid_event" });
     }
 
-    io.to(room).emit(event, payload);
-    return res.json({ ok: true, event, room });
+    if (rooms.length === 0) {
+        return res.status(400).json({ ok: false, reason: "invalid_room" });
+    }
+
+    rooms.forEach(r => io.to(r).emit(event, payload));
+    return res.json({ ok: true, event, rooms });
 });
 
 const PORT = process.env.PORT || 3000;
