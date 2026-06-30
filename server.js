@@ -6,10 +6,44 @@ const app = express();
 app.use(express.json({ limit: "512kb" }));
 app.use(express.urlencoded({ extended: true, limit: "512kb" }));
 
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "https://lolboost.gg,https://www.lolboost.gg")
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || "https://lolboost.gg,https://www.lolboost.gg,https://new.lolboost.gg,https://testing.lolboost.gg,https://progress.lolboost.gg")
     .split(",")
     .map(v => v.trim())
     .filter(Boolean);
+
+// Keep live locked to lolboost domains, but do not break staging subdomains.
+// Set ALLOW_LOLBOOST_SUBDOMAINS=false if you want to use ALLOWED_ORIGINS only.
+const allowLolboostSubdomains = String(process.env.ALLOW_LOLBOOST_SUBDOMAINS || "true").toLowerCase() !== "false";
+
+function isAllowedOrigin(origin) {
+    if (!origin) return true;
+    if (allowedOrigins.includes(origin)) return true;
+
+    if (!allowLolboostSubdomains) return false;
+
+    try {
+        const url = new URL(origin);
+        const host = url.hostname.toLowerCase();
+        const protocol = url.protocol.toLowerCase();
+
+        if (protocol !== "https:" && host !== "localhost" && host !== "127.0.0.1") {
+            return false;
+        }
+
+        if (host === "lolboost.gg" || host.endsWith(".lolboost.gg")) {
+            return true;
+        }
+
+        // Local dev only.
+        if ((host === "localhost" || host === "127.0.0.1") && (protocol === "http:" || protocol === "https:")) {
+            return true;
+        }
+    } catch (e) {
+        return false;
+    }
+
+    return false;
+}
 
 const realtimeSecret = process.env.REALTIME_SECRET || "CHANGE_ME_LONG_RANDOM_SECRET";
 
@@ -26,8 +60,8 @@ const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
         origin: function(origin, callback) {
-            if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-            return callback(new Error("Origin not allowed"));
+            if (isAllowedOrigin(origin)) return callback(null, true);
+            return callback(new Error("Origin not allowed: " + origin));
         },
         methods: ["GET", "POST"],
         credentials: true
